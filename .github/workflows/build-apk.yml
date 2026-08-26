@@ -1,0 +1,77 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Unzip project archive (if uploaded as a single zip)
+        run: |
+          if [ -f "project.zip" ]; then
+            echo "Found project.zip — extracting..."
+            unzip -o project.zip -d extracted-tmp
+            if [ -f "extracted-tmp/package.json" ]; then
+              cp -r extracted-tmp/. .
+            else
+              inner=$(find extracted-tmp -maxdepth 1 -mindepth 1 -type d | head -n 1)
+              cp -r "$inner"/. .
+            fi
+            rm -rf extracted-tmp project.zip
+          fi
+          echo "Repo contents after extraction:"
+          ls -la
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install npm dependencies
+        run: npm install
+
+      - name: Add Android platform (if not already present)
+        run: |
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
+
+      - name: Sync Capacitor -> Android
+        run: npx cap sync android
+
+      - name: Grant execute permission to gradlew
+        run: chmod +x android/gradlew
+
+      - name: Build Debug APK
+        run: |
+          cd android
+          ./gradlew assembleDebug --stacktrace
+
+      - name: Build Unsigned Release APK
+        run: |
+          cd android
+          ./gradlew assembleRelease --stacktrace
+
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload Release APK (unsigned)
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-unsigned-apk
+          path: android/app/build/outputs/apk/release/app-release-unsigned.apk
